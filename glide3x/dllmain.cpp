@@ -405,7 +405,7 @@ extern "C"
 
     FX_ENTRY void FX_CALL grTexDownloadMipMap(GrChipID_t tmu, FxU32 startAddress, FxU32 evenOdd, GrTexInfo* info)
     {
-        log("grTexDownloadMipMap");
+        log("grTexDownloadMipMap tmu: {}, sa: {}, eo: {}, inf: {}", tmu, startAddress, evenOdd, static_cast<void*>(info));
     }
 
     FX_ENTRY void FX_CALL grTexDownloadMipMapLevel(GrChipID_t tmu, FxU32 startAddress, GrLOD_t thisLod, GrLOD_t largeLod, GrAspectRatio_t aspectRatio, GrTextureFormat_t format, FxU32 evenOdd, void* data)
@@ -518,4 +518,54 @@ extern "C"
         log("grGlideSetVertexLayout");
     }
 
+#pragma region "gu*"
+    FX_ENTRY FxBool FX_CALL gu3dfGetInfo(const char* filename, Gu3dfInfo* info)
+    {
+        log("gu3dfGetInfo");
+        return {};
+    }
+
+    FX_ENTRY FxBool FX_CALL gu3dfLoad(const char* filename, Gu3dfInfo* data)
+    {
+        log("gu3dfLoad");
+        return {};
+    }
+
+    FX_ENTRY void FX_CALL guGammaCorrectionRGB(FxFloat red, FxFloat green, FxFloat blue)
+    {
+        log("guGammaCorrectionRGB");
+    }
+
+    FX_ENTRY float FX_CALL guFogTableIndexToW(int i)
+    {
+        log("guFogTableIndexToW");
+        return {};
+    }
+
+    FX_ENTRY void FX_CALL guFogGenerateExp(GrFog_t* fogtable, float density)
+    {
+        log("guFogGenerateExp");
+    }
+
+    FX_ENTRY void FX_CALL guFogGenerateExp2(GrFog_t* fogtable, float density)
+    {
+        log("guFogGenerateExp2");
+    }
+
+    FX_ENTRY void FX_CALL guFogGenerateLinear(GrFog_t* fogtable, float nearZ, float farZ)
+    {
+        log("guFogGenerateLinear");
+    }
+
+    FX_ENTRY int FX_CALL
+        guEncodeRLE16(void* dst,
+            void* src,
+            FxU32 width,
+            FxU32 height)
+    {
+        //assert(false && "guEncodeRLE16: Unsupported");
+        log("guEncodeRLE16");
+        return 0;
+    }
+#pragma endregion
 }
