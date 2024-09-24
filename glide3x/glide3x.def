@@ -86,12 +86,11 @@ EXPORTS
 	grGlideGetState @84
 	grGlideSetState @85
 	grGlideGetVertexLayout @86
-	grGlideSetVertexLayout @87
-	gu3dfGetInfo @88
-	gu3dfLoad @89
-	guEncodeRLE16 @90
-	guFogGenerateExp2 @91
-	guFogGenerateExp @92
-	guFogGenerateLinear @93
-	guFogTableIndexToW @94
-	guGammaCorrectionRGB @95
+	gu3dfGetInfo @87
+	gu3dfLoad @88
+	guEncodeRLE16 @89
+	guFogGenerateExp2 @90
+	guFogGenerateExp @91
+	guFogGenerateLinear @92
+	guFogTableIndexToW @93
+	guGammaCorrectionRGB @94
