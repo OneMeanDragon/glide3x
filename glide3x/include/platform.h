@@ -31,3 +31,5 @@
 #include <limits>
 #include <string>
 #include <vector>
+
+static GuTexPalette g_pal{};

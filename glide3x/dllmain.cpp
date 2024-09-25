@@ -11,6 +11,90 @@ namespace {
         g_log << std::vformat(format, std::make_format_args(args...)) << "\n";
         g_log.flush();
     }
+#pragma region "HEX DUMP (needs to be internal at some point)"
+    void HexDump(const uint8_t* buf, size_t len, std::string& outdata, bool HexOnly = false) {
+        //#ifdef _DEBUG
+        if (len <= 0) { return; }		//length not provided
+        if (buf == nullptr) { return; } //invalid pointer
+
+        constexpr char hex_character[] = "0123456789ABCDEF";
+
+        constexpr int BYTES_PER_LINE = 16;					//16 is standard to most hex dumps
+#define SPACE_BETWEEN_BYTES (1)
+#define SPACE_AFTER_BYTES	(4)
+
+        constexpr char padding_character = ' ';
+        constexpr size_t CHARACTERS_PER_LINE = BYTES_PER_LINE;
+
+        constexpr size_t HEX_BLOCK_SIZE = ((BYTES_PER_LINE * 2) + (BYTES_PER_LINE * SPACE_BETWEEN_BYTES) - SPACE_BETWEEN_BYTES);
+        constexpr size_t TOTAL_CHARS_PER_LINE = (BYTES_PER_LINE * 2) + ((BYTES_PER_LINE * SPACE_BETWEEN_BYTES) - SPACE_BETWEEN_BYTES) + SPACE_AFTER_BYTES + CHARACTERS_PER_LINE;
+
+        size_t TOTAL_LINES = len / BYTES_PER_LINE;
+        size_t steper = BYTES_PER_LINE;
+        for (size_t i = 0; i <= len; i += steper) {
+            {
+                //Whats our total line size going to be?
+                char BufferOutput[TOTAL_CHARS_PER_LINE + 1];
+                size_t position = 0;
+
+                size_t current_addr = i;
+                size_t current_endl = current_addr + steper;
+                for (size_t addr = current_addr; addr < current_endl; addr++) {
+                    //build our hex block line
+                    if (addr < len) {
+                        BufferOutput[position] = hex_character[(buf[addr] >> 4) & 0xf]; position++; //high byte problem
+                        BufferOutput[position] = hex_character[(buf[addr] & 0xf) & 0xf]; position++;
+                    }
+                    else {
+                        BufferOutput[position] = padding_character; position++;
+                        BufferOutput[position] = padding_character; position++;
+                    }
+
+#if (SPACE_BETWEEN_BYTES >= 1)
+                    //is it between another byte
+                    if (addr < (current_endl - 1)) {
+                        for (size_t padd_count = 0; padd_count < SPACE_BETWEEN_BYTES; padd_count++) {
+                            BufferOutput[position] = padding_character; position++;
+                        }
+                    }
+#endif
+
+                }
+
+#if (SPACE_AFTER_BYTES >= 1)
+                //padding between hex and the string
+                for (size_t pad_int = 0; pad_int < SPACE_AFTER_BYTES; pad_int++) {
+                    BufferOutput[position] = padding_character; position++;
+                }
+#endif
+
+                if (!HexOnly) {
+                    //the string itself
+                    for (size_t str_int = current_addr; str_int < current_endl; str_int++) {
+                        if (str_int < len) {
+                            BufferOutput[position] = isgraph(buf[str_int]) ? buf[str_int] : buf[str_int] == ' ' ? ' ' : '.'; position++;
+                        }
+                        else {
+                            break;
+                        }
+                    }
+                }
+
+                //final null on the line
+                BufferOutput[position] = '\0';
+
+                //Calculate the steper
+                if (!((len - i) > BYTES_PER_LINE) && ((len - i) >= 1)) {
+                    steper = (len - i);
+                }
+
+                outdata += (((i + steper) <= len) ? std::format(" [{:08X}] ", i) : "") + BufferOutput;
+                if ((i + steper) < len)
+                    outdata += "\n";
+            }
+        }
+#pragma endregion
+    }
 }
 
 FX_ENTRY BOOL FX_CALL DllMain(HMODULE hModule,
@@ -562,7 +646,23 @@ FX_ENTRY FxBool FX_CALL grTexDownloadMipMapLevelPartial(GrChipID_t tmu, FxU32 st
 
 FX_ENTRY void FX_CALL grTexDownloadTable(GrTexTable_t type, void* data)
 {
-    log("grTexDownloadTable");
+    log("grTexDownloadTable palette type: {}, addr: {}", type, static_cast<void*>(data));
+    /* palette table */
+    //GR_TEXTABLE_NCC0;             0
+    //GR_TEXTABLE_NCC1;             1
+    //GR_TEXTABLE_PALETTE;          2
+    //GR_TEXTABLE_PALETTE_6666_EXT; 3
+    GuTexPalette x;
+    switch (type) {
+    case GR_TEXTABLE_PALETTE: {
+        FxU32* pal = static_cast<FxU32*>(data);
+        std::copy(pal, pal + 256, g_pal.data);
+        std::string out{};
+        HexDump((const uint8_t*)(g_pal.data), 1024, out);
+        log("PaletteData: \n{}", out);
+        break;
+    }
+    }
 }
 
 FX_ENTRY void FX_CALL grTexDownloadTablePartial(GrTexTable_t type, void* data, int start, int end)
