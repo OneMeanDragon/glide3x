@@ -1,5 +1,7 @@
 // dllmain.cpp : Defines the entry point for the DLL application.
 #include "include/platform.h"
+#include <cassert>
+
 
 namespace {
     std::ofstream g_log{};
@@ -245,42 +247,48 @@ FX_ENTRY void FX_CALL grSplash(float x, float y, float width, float height, FxU3
 FX_ENTRY FxU32 FX_CALL grGet(FxU32 pname, FxU32 plength, FxI32* params)
 {
     log("grGet {:x} {} {}", pname, plength, static_cast<void*>(params));
-    *params = plength;
 
     //MessageBox(0, TEXT("grGet"), TEXT("grGet"), MB_OK);
     switch (pname) {
-    case GR_NUM_BOARDS: {
-        //*params = plength;
-        return plength;
-    }
-    case GR_GAMMA_TABLE_ENTRIES: {
-        return 32;
-    }
-    case GR_BITS_GAMMA: {
-        return 8;
-    }
     case GR_MAX_TEXTURE_SIZE: {
-        return 256;
+        *params = 256;
+        break;
     }
     case GR_MAX_TEXTURE_ASPECT_RATIO: {
-        return 3;
+        *params = 3;
+        break;
+    }
+    case GR_NUM_BOARDS: {
+        *params = 1;
+        break;
     }
     case GR_NUM_FB: {
-        return 2;
+        *params = 1;
+        break;
     }
     case GR_NUM_TMU: {
-        return 1;
+        *params = 1;
+        break;
     }
     case GR_TEXTURE_ALIGN: {
-        return 8;
+        *params = 256;// D2DX_TMU_ADDRESS_ALIGNMENT;
+        break;
     }
     case GR_MEMORY_UMA: {
-        return 1;
+        *params = 0;
+        break;
     }
-    default: { break; }
+    case GR_GAMMA_TABLE_ENTRIES: {
+        *params = 256;
+        break;
     }
-
-    return {};
+    case GR_BITS_GAMMA: {
+        *params = 8;
+        break;
+    }
+    default: { return 0; }
+    }
+    return 4;
 }
 
 FX_ENTRY const char* FX_CALL grGetString(FxU32 pname)
@@ -401,9 +409,144 @@ FX_ENTRY void FX_CALL grTexLodBiasValue(GrChipID_t tmu, float bias)
     log("grTexLodBiasValue");
 }
 
+static void GetWidthHeightFromTexInfo(const GrTexInfo* info, FxU32* w, FxU32* h)
+{
+    FxU32 ww = 1 << info->largeLodLog2;
+    switch (info->aspectRatioLog2)
+    {
+    case GR_ASPECT_LOG2_1x1:
+        *w = ww;
+        *h = ww;
+        break;
+    case GR_ASPECT_LOG2_1x2:
+        *w = ww / 2;
+        *h = ww;
+        break;
+    case GR_ASPECT_LOG2_2x1:
+        *w = ww;
+        *h = ww / 2;
+        break;
+    case GR_ASPECT_LOG2_1x4:
+        *w = ww / 4;
+        *h = ww;
+        break;
+    case GR_ASPECT_LOG2_4x1:
+        *w = ww;
+        *h = ww / 4;
+        break;
+    case GR_ASPECT_LOG2_1x8:
+        *w = ww / 8;
+        *h = ww;
+        break;
+    case GR_ASPECT_LOG2_8x1:
+        *w = ww;
+        *h = ww / 8;
+        break;
+    default:
+        *w = 0;
+        *h = 0;
+        break;
+    }
+}
+
+#ifdef DUMP_RAW_IMAGES
+#pragma pack(push, 1)  // Ensure no padding
+struct BMPHeader {
+    uint16_t file_type{ 0x4D42 }; // "BM"
+    uint32_t file_size{ 0 };      // Size of the file (will be set later)
+    uint16_t reserved1{ 0 };
+    uint16_t reserved2{ 0 };
+    uint32_t offset_data{ 54 };   // Data offset from start of the file (header size)
+};
+struct DIBHeader {
+    uint32_t dib_header_size{ 40 };   // DIB header size
+    int32_t width{ 0 };               // Image width
+    int32_t height{ 0 };              // Image height (positive = bottom-to-top)
+    uint16_t planes{ 1 };             // Number of color planes
+    uint16_t bpp{ 32 };               // Bits per pixel
+    uint32_t compression{ 0 };        // No compression
+    uint32_t image_size{ 0 };         // Size of raw bitmap data (can be 0 for uncompressed)
+    int32_t x_ppm{ 2835 };            // Pixels per meter (X axis)
+    int32_t y_ppm{ 2835 };            // Pixels per meter (Y axis)
+    uint32_t colors_in_palette{ 0 };  // No palette
+    uint32_t important_colors{ 0 };   // All colors are important
+};
+#pragma pack(pop)
+void saveBMP(const std::string& filename, int32_t width, int32_t height, const std::vector<uint8_t>& argb_data) {
+    BMPHeader bmp_header;
+    DIBHeader dib_header;
+
+    dib_header.width = width;
+    dib_header.height = -height;  // Negative so image is stored top-to-bottom
+
+    // BMP row size (must be a multiple of 4 bytes)
+    const int row_size = (width * 4);// +3) & ~3;
+
+    dib_header.image_size = row_size * height;
+    bmp_header.file_size = sizeof(BMPHeader) + sizeof(DIBHeader) + dib_header.image_size;
+
+    std::ofstream file(filename, std::ios::binary);
+
+    if (!file) {
+        //std::cerr << "Error: Could not open file for writing.\n";
+        return;
+    }
+
+    // Write headers
+    file.write(reinterpret_cast<const char*>(&bmp_header), sizeof(bmp_header));
+    file.write(reinterpret_cast<const char*>(&dib_header), sizeof(dib_header));
+
+    // Convert ARGB to BMP format (BGRA)
+    std::vector<uint8_t> bmp_data(row_size * height);
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            size_t argb_index = (y * width + x) * 4;
+            size_t bmp_index = (y * row_size + x * 4);
+
+            //bmp_data[bmp_index + 0] = argb_data[argb_index + 2]; // B
+            //bmp_data[bmp_index + 1] = argb_data[argb_index + 1]; // G
+            //bmp_data[bmp_index + 2] = argb_data[argb_index + 0]; // R
+            //bmp_data[bmp_index + 3] = argb_data[argb_index + 3]; // A
+            bmp_data[bmp_index + 0] = argb_data[argb_index + 0]; // B
+            bmp_data[bmp_index + 1] = argb_data[argb_index + 1]; // G
+            bmp_data[bmp_index + 2] = argb_data[argb_index + 2]; // R
+            bmp_data[bmp_index + 3] = argb_data[argb_index + 3]; // A
+        }
+    }
+
+    // Write pixel data
+    file.write(reinterpret_cast<const char*>(bmp_data.data()), bmp_data.size());
+
+    file.close();
+    if (file) {
+        //std::cout << "BMP image saved successfully to " << filename << "\n";
+    }
+    else {
+        //std::cerr << "Error: Could not write to file.\n";
+    }
+}
+#endif
+
+#ifdef DUMP_RAW_IMAGES
+uint32_t icount{};
+#endif
 FX_ENTRY void FX_CALL grTexDownloadMipMap(GrChipID_t tmu, FxU32 startAddress, FxU32 evenOdd, GrTexInfo* info)
 {
-    log("grTexDownloadMipMap tmu: {}, sa: {}, eo: {}, inf: {}", tmu, startAddress, evenOdd, static_cast<void*>(info));
+    //log("grTexDownloadMipMap tmu: {}, sa: {}, eo: {}, inf: {}", tmu, startAddress, evenOdd, static_cast<void*>(info));
+    FxU32 width, height;
+    GetWidthHeightFromTexInfo(info, &width, &height);
+    log("grTexDownloadMipMap::GetWidthHeightFromTexInfo inf: {}, w: {}, h: {}", static_cast<void*>(info), width, height);
+    
+#ifdef DUMP_RAW_IMAGES
+    // image data
+    size_t len_data = (width * height) * 4;
+    std::vector<uint8_t> imgdata(len_data);
+    std::copy((uint8_t*)info->data, (uint8_t*)info->data + len_data, imgdata.begin());
+    std::string dfout = { std::string("screens/") + std::to_string(icount++) + std::string(".bmp") };
+    saveBMP(dfout, width, height, imgdata);
+    // end image data
+#endif
 }
 
 FX_ENTRY void FX_CALL grTexDownloadMipMapLevel(GrChipID_t tmu, FxU32 startAddress, GrLOD_t thisLod, GrLOD_t largeLod, GrAspectRatio_t aspectRatio, GrTextureFormat_t format, FxU32 evenOdd, void* data)
@@ -445,13 +588,13 @@ FX_ENTRY void FX_CALL grTexMultibaseAddress(GrChipID_t tmu, GrTexBaseRange_t ran
 FX_ENTRY FxBool FX_CALL grLfbLock(GrLock_t type, GrBuffer_t buffer, GrLfbWriteMode_t writeMode, GrOriginLocation_t origin, FxBool pixelPipeline, GrLfbInfo_t* info)
 {
     log("grLfbLock");
-    return {};
+    return FXTRUE;
 }
 
 FX_ENTRY FxBool FX_CALL grLfbUnlock(GrLock_t type, GrBuffer_t buffer)
 {
     log("grLfbUnlock");
-    return {};
+    return FXTRUE;
 }
 
 FX_ENTRY void FX_CALL grLfbConstantAlpha(GrAlpha_t alpha)
