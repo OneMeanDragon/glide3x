@@ -1,7 +1,11 @@
+#define _CRT_SECURE_NO_WARNINGS
 // dllmain.cpp : Defines the entry point for the DLL application.
 #include "include/platform.h"
 #include <cassert>
+#include <cmath>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "include/ThirdParty/stb_image_write.h"
 
 namespace {
     std::ofstream g_log{};
@@ -11,6 +15,22 @@ namespace {
         g_log << std::vformat(format, std::make_format_args(args...)) << "\n";
         g_log.flush();
     }
+    template<std::integral T>
+    T pow2(T value)
+    {
+        T result{ 1 };
+        for (auto i = 0; i < value; i++)
+        {
+            result *= 2;
+        }
+        return result;
+    }
+
+    // the actual palette var 
+    //    static GuTexPalette g_pal{}; 
+    
+    std::vector<FxU32> g_pal(256u);
+
 #pragma region "HEX DUMP (needs to be internal at some point)"
     void HexDump(const uint8_t* buf, size_t len, std::string& outdata, bool HexOnly = false) {
         //#ifdef _DEBUG
@@ -493,46 +513,6 @@ FX_ENTRY void FX_CALL grTexLodBiasValue(GrChipID_t tmu, float bias)
     log("grTexLodBiasValue");
 }
 
-static void GetWidthHeightFromTexInfo(const GrTexInfo* info, FxU32* w, FxU32* h)
-{
-    FxU32 ww = 1 << info->largeLodLog2;
-    switch (info->aspectRatioLog2)
-    {
-    case GR_ASPECT_LOG2_1x1:
-        *w = ww;
-        *h = ww;
-        break;
-    case GR_ASPECT_LOG2_1x2:
-        *w = ww / 2;
-        *h = ww;
-        break;
-    case GR_ASPECT_LOG2_2x1:
-        *w = ww;
-        *h = ww / 2;
-        break;
-    case GR_ASPECT_LOG2_1x4:
-        *w = ww / 4;
-        *h = ww;
-        break;
-    case GR_ASPECT_LOG2_4x1:
-        *w = ww;
-        *h = ww / 4;
-        break;
-    case GR_ASPECT_LOG2_1x8:
-        *w = ww / 8;
-        *h = ww;
-        break;
-    case GR_ASPECT_LOG2_8x1:
-        *w = ww;
-        *h = ww / 8;
-        break;
-    default:
-        *w = 0;
-        *h = 0;
-        break;
-    }
-}
-
 #ifdef DUMP_RAW_IMAGES
 #pragma pack(push, 1)  // Ensure no padding
 struct BMPHeader {
@@ -617,20 +597,80 @@ uint32_t icount{};
 #endif
 FX_ENTRY void FX_CALL grTexDownloadMipMap(GrChipID_t tmu, FxU32 startAddress, FxU32 evenOdd, GrTexInfo* info)
 {
-    //log("grTexDownloadMipMap tmu: {}, sa: {}, eo: {}, inf: {}", tmu, startAddress, evenOdd, static_cast<void*>(info));
-    FxU32 width, height;
-    GetWidthHeightFromTexInfo(info, &width, &height);
-    log("grTexDownloadMipMap::GetWidthHeightFromTexInfo inf: {}, w: {}, h: {}", static_cast<void*>(info), width, height);
-    
-#ifdef DUMP_RAW_IMAGES
-    // image data
-    size_t len_data = (width * height) * 4;
-    std::vector<uint8_t> imgdata(len_data);
-    std::copy((uint8_t*)info->data, (uint8_t*)info->data + len_data, imgdata.begin());
-    std::string dfout = { std::string("screens/") + std::to_string(icount++) + std::string(".bmp") };
-    saveBMP(dfout, width, height, imgdata);
-    // end image data
-#endif
+    log("grTexDownloadMipMap tmu: {}, sa: {}, eo: {}, inf->smlod: {}, inf->lrglod: {}, inf->aspect: {}, inf->fmt: {}, inf->data: {}", tmu, startAddress, evenOdd, info->smallLodLog2, info->largeLodLog2, info->aspectRatioLog2, info->format, info->data);
+//    FxU32 width, height;
+//    GetWidthHeightFromTexInfo(info, &width, &height);
+//    log("grTexDownloadMipMap::GetWidthHeightFromTexInfo inf: {}, w: {}, h: {}", static_cast<void*>(info), width, height);
+//    size_t len_data = ((width * 4) * height);
+//    if (len_data) {
+//        std::vector<uint8_t> rawbuf(len_data);
+//        std::copy((uint8_t*)info->data, (uint8_t*)info->data + len_data, rawbuf.begin());
+//
+//        std::string out{};
+//        HexDump(rawbuf.data(), len_data, out);
+//        log("TextureImageData: \n{}", out);
+//    }
+//#ifdef DUMP_RAW_IMAGES
+//    // image data
+//    std::vector<uint8_t> imgdata(len_data);
+//    std::copy((uint8_t*)info->data, (uint8_t*)info->data + len_data, imgdata.begin());
+//    std::string dfout = { std::string("screens/") + std::to_string(icount++) + std::string(".bmp") };
+//    saveBMP(dfout, width, height, imgdata);
+//    // end image data
+//#endif
+
+    assert(info->smallLodLog2 == info->largeLodLog2);
+
+    const FxU32 dimension = (1 << info->smallLodLog2);
+    FxU32 width{}, height{};
+    switch (info->aspectRatioLog2)
+    {
+        case GR_ASPECT_LOG2_8x1: { width = dimension; height = dimension / 8; break; }
+        case GR_ASPECT_LOG2_4x1: { width = dimension; height = dimension / 4; break; }
+        case GR_ASPECT_LOG2_2x1: { width = dimension; height = dimension / 2; break; }
+        case GR_ASPECT_LOG2_1x1: { width = dimension; height = dimension; break; }
+        case GR_ASPECT_LOG2_1x2: { width = dimension / 2; height = dimension; break; }
+        case GR_ASPECT_LOG2_1x4: { width = dimension / 4; height = dimension; break; }
+        case GR_ASPECT_LOG2_1x8: { width = dimension / 8; height = dimension; break; }
+        default: { width = 0; height = 0; break; }
+    }
+
+    log("width: {}, height: {}", width, height);
+    /* again when dumping this data the image was BGRA = 4 not 3 */
+    size_t dim = (width * height);
+    size_t data_len = (dim * 3);
+    std::vector<std::uint8_t> image_data(data_len);
+    const auto* cursor = reinterpret_cast<std::uint8_t*>(info->data);
+
+    // could have swore it was uint24 values but its not ok...
+    //std::vector<uint8_t> rawbuf(data_len);
+    //std::copy((uint8_t*)info->data, (uint8_t*)info->data + data_len, rawbuf.begin());
+    //std::string out{};
+    //HexDump(rawbuf.data(), data_len, out);
+    //log("TextureImageData: \n{}", out);
+    //return;
+
+    //
+    // there is an actual palette variable within the sdk.
+    //
+    for (size_t i = 0u; i < dim; i++)
+    {
+        const auto index = *cursor;
+        const auto r = g_pal[index * 4u + 0u];
+        const auto g = g_pal[index * 4u + 1u];
+        const auto b = g_pal[index * 4u + 2u];
+        image_data[i * 3u + 0u] = b;
+        image_data[i * 3u + 1u] = g;
+        image_data[i * 3u + 2u] = r;
+        ++cursor;
+    }
+
+    static auto counter = 1u;
+    const auto filename = std::format("screens/output_{:06}.png", counter++);
+    if (::stbi_write_png(filename.c_str(), width, height, 3, image_data.data(), width * 3) != 0)
+    {
+        // save the image to disk inside folder screens.
+    }
 }
 
 FX_ENTRY void FX_CALL grTexDownloadMipMapLevel(GrChipID_t tmu, FxU32 startAddress, GrLOD_t thisLod, GrLOD_t largeLod, GrAspectRatio_t aspectRatio, GrTextureFormat_t format, FxU32 evenOdd, void* data)
@@ -655,11 +695,16 @@ FX_ENTRY void FX_CALL grTexDownloadTable(GrTexTable_t type, void* data)
     GuTexPalette x;
     switch (type) {
     case GR_TEXTABLE_PALETTE: {
-        FxU32* pal = static_cast<FxU32*>(data);
-        std::copy(pal, pal + 256, g_pal.data);
-        std::string out{};
-        HexDump((const uint8_t*)(g_pal.data), 1024, out);
-        log("PaletteData: \n{}", out);
+        /*
+            the actual palette variable is an array of FxU32
+            as you can see the following ends up copied backwards.
+            should actually be:
+                FxU32* pal = static_cast<FxU32*>(data);
+                std::copy(pal, pal + 256, g_pal.begin());
+        */
+        uint8_t* pal = static_cast<uint8_t*>(data);
+        std::copy(pal, pal + (256 * 4), g_pal.data());
+
         break;
     }
     }

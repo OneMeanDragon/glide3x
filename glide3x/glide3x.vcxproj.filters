@@ -26,6 +26,9 @@
     <ClInclude Include="include\windows\framework.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\ThirdParty\stb_image_write.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="glide3x.def">

@@ -163,6 +163,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\platform.h" />
+    <ClInclude Include="include\ThirdParty\stb_image_write.h" />
     <ClInclude Include="include\windows\framework.h" />
   </ItemGroup>
   <ItemGroup>
